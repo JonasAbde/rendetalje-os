@@ -9,6 +9,7 @@ import { EmployeeForm } from './components/EmployeeForm';
 import { CustomerEditForm } from './components/CustomerEditForm';
 import { BookingRequestsList } from './components/BookingRequestsList';
 import { InvoicingView } from './components/InvoicingView';
+import { InventoryManagementView } from './components/InventoryManagementView';
 import { ReportsOverviewView } from '@/components/ReportsOverviewView';
 import { SettingsGeneralView } from './components/SettingsGeneralView';
 import { ActiveView } from './types';
@@ -74,6 +75,7 @@ const App: React.FC = () => {
       case 'employee_create': return 'Opret Ny Medarbejder';
       case 'employee_edit': return 'Rediger Medarbejder';
       case 'invoicing': return 'Økonomi & Fakturering';
+      case 'inventory_management': return 'Lager';
       case 'reports_overview': return 'Rapporter';
       case 'settings_general': return 'Indstillinger';
       case 'logout': return 'Log Ud';
@@ -101,6 +103,7 @@ const App: React.FC = () => {
                <PlaceholderView title="Fejl: Medarbejder ID mangler" />;
 
       case 'invoicing': return <InvoicingView showSuccessMessage={showSuccessMessage} />;
+      case 'inventory_management': return <InventoryManagementView showSuccessMessage={showSuccessMessage} />;
       case 'reports_overview': return <ReportsOverviewView />;
       case 'settings_general': return <SettingsGeneralView />;
       case 'logout': return <LogoutView />;
