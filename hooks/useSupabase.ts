@@ -1259,3 +1259,276 @@ export const useReportsData = () => {
 
   return { reportsData, loading, error };
 };
+
+// Advanced Inventory Management Hooks
+export const useInventoryManagement = () => {
+  const [items, setItems] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchInventoryData();
+  }, []);
+
+  const fetchInventoryData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch inventory items
+      const { data: itemsData, error: itemsError } = await supabase
+        .from("inventory")
+        .select("*")
+        .order("item_name");
+
+      if (itemsError) throw itemsError;
+
+      // Fetch recent transactions
+      const { data: transactionsData, error: transactionsError } =
+        await supabase
+          .from("inventory_transactions")
+          .select(
+            `
+          *,
+          inventory (item_name),
+          employees (first_name, last_name)
+        `
+          )
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+      // Fetch active alerts
+      const { data: alertsData, error: alertsError } = await supabase
+        .from("inventory_alerts")
+        .select(
+          `
+          *,
+          inventory (item_name, unit)
+        `
+        )
+        .eq("is_resolved", false)
+        .order("created_at", { ascending: false });
+
+      setItems(itemsData || []);
+      setTransactions(transactionsData || []);
+      setAlerts(alertsData || []);
+    } catch (err) {
+      console.error("Error fetching inventory data:", err);
+      setError(
+        err instanceof Error ? err.message : "Fejl ved hentning af lager data"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const restockItem = async (
+    itemId: string,
+    quantity: number,
+    costPerUnit?: number,
+    notes?: string
+  ) => {
+    try {
+      // Update item stock
+      const { data: item, error: updateError } = await supabase
+        .from("inventory")
+        .update({
+          current_stock: `current_stock + ${quantity}`,
+          last_restocked: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      // Record transaction
+      const { error: transactionError } = await supabase
+        .from("inventory_transactions")
+        .insert({
+          inventory_item_id: itemId,
+          type: "restock",
+          quantity,
+          cost_total: costPerUnit ? costPerUnit * quantity : null,
+          notes,
+          created_at: new Date().toISOString(),
+        });
+
+      if (transactionError) throw transactionError;
+
+      // Refresh data
+      await fetchInventoryData();
+      return item;
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Fejl ved genopfyldning";
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  const recordUsage = async (
+    itemId: string,
+    quantity: number,
+    taskId?: string,
+    notes?: string
+  ) => {
+    try {
+      // Check if enough stock
+      const { data: item, error: checkError } = await supabase
+        .from("inventory")
+        .select("current_stock, item_name")
+        .eq("id", itemId)
+        .single();
+
+      if (checkError) throw checkError;
+      if (item.current_stock < quantity) {
+        throw new Error(
+          `Ikke nok på lager. Tilgængelig: ${item.current_stock}`
+        );
+      }
+
+      // Update stock
+      const { error: updateError } = await supabase
+        .from("inventory")
+        .update({
+          current_stock: `current_stock - ${quantity}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId);
+
+      if (updateError) throw updateError;
+
+      // Record transaction
+      const { error: transactionError } = await supabase
+        .from("inventory_transactions")
+        .insert({
+          inventory_item_id: itemId,
+          type: "usage",
+          quantity: -quantity, // Negative for usage
+          task_id: taskId,
+          notes,
+          created_at: new Date().toISOString(),
+        });
+
+      if (transactionError) throw transactionError;
+
+      // Check for low stock alert
+      await checkAndCreateAlert(itemId);
+
+      // Refresh data
+      await fetchInventoryData();
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Fejl ved registrering af forbrug";
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  const addInventoryItem = async (itemData: {
+    item_name: string;
+    category: string;
+    description?: string;
+    current_stock: number;
+    minimum_stock: number;
+    unit: string;
+    cost_per_unit: number;
+    supplier?: string;
+  }) => {
+    try {
+      const { data, error } = await supabase
+        .from("inventory")
+        .insert({
+          ...itemData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await fetchInventoryData();
+      return data;
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Fejl ved tilføjelse af vare";
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  const checkAndCreateAlert = async (itemId: string) => {
+    try {
+      const { data: item, error } = await supabase
+        .from("inventory")
+        .select("current_stock, minimum_stock, item_name")
+        .eq("id", itemId)
+        .single();
+
+      if (error) throw error;
+
+      if (item.current_stock <= item.minimum_stock) {
+        // Check if alert already exists
+        const { data: existingAlert } = await supabase
+          .from("inventory_alerts")
+          .select("id")
+          .eq("inventory_item_id", itemId)
+          .eq("is_resolved", false)
+          .eq("alert_type", "low_stock")
+          .single();
+
+        if (!existingAlert) {
+          await supabase.from("inventory_alerts").insert({
+            inventory_item_id: itemId,
+            alert_type: item.current_stock === 0 ? "out_of_stock" : "low_stock",
+            threshold_value: item.minimum_stock,
+            current_value: item.current_stock,
+            is_resolved: false,
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Error checking alerts:", err);
+    }
+  };
+
+  const resolveAlert = async (alertId: string) => {
+    try {
+      const { error } = await supabase
+        .from("inventory_alerts")
+        .update({
+          is_resolved: true,
+          resolved_at: new Date().toISOString(),
+        })
+        .eq("id", alertId);
+
+      if (error) throw error;
+
+      await fetchInventoryData();
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Fejl ved løsning af alert";
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  return {
+    items,
+    transactions,
+    alerts,
+    loading,
+    error,
+    refetch: fetchInventoryData,
+    restockItem,
+    recordUsage,
+    addInventoryItem,
+    resolveAlert,
+  };
+};

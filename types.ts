@@ -111,6 +111,7 @@ export type ActiveView =
   | "employee_edit" // Vil bruge EmployeeForm
   | "invoicing" // Økonomi
   | "reports_overview"
+  | "inventory_management" // Lager management system
   | "settings_general"
   | "logout";
 
@@ -152,4 +153,51 @@ export interface RecentActivityItem {
   timestamp: string; // ISO Date string
   relatedId?: string; // ID of customer, task, employee etc.
   icon?: React.ReactNode; // Optional: specific icon for the activity type
+}
+
+export interface InventoryItem {
+  id: string;
+  item_name: string;
+  category: "cleaning_supplies" | "equipment" | "consumables" | "other";
+  description?: string;
+  current_stock: number;
+  minimum_stock: number;
+  unit: string;
+  cost_per_unit: number;
+  supplier?: string;
+  last_restocked?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryTransaction {
+  id: string;
+  inventory_item_id: string;
+  type: "restock" | "usage" | "adjustment" | "waste";
+  quantity: number;
+  cost_total?: number;
+  notes?: string;
+  employee_id?: string;
+  task_id?: string;
+  created_at: string;
+}
+
+export interface InventoryAlert {
+  id: string;
+  inventory_item_id: string;
+  alert_type: "low_stock" | "out_of_stock" | "expiring_soon";
+  threshold_value: number;
+  current_value: number;
+  is_resolved: boolean;
+  created_at: string;
+  resolved_at?: string;
+}
+
+export interface InventoryManagementState {
+  items: InventoryItem[];
+  transactions: InventoryTransaction[];
+  alerts: InventoryAlert[];
+  categories: string[];
+  loading: boolean;
+  error: string | null;
 }
