@@ -990,3 +990,272 @@ export const useDashboardStats = () => {
 
   return { stats, loading, error, refetch: fetchStats };
 };
+
+export interface ReportsData {
+  monthlyRevenue: { month: string; revenue: number; tasks: number }[];
+  topCustomers: { name: string; revenue: number; tasks: number }[];
+  employeePerformance: {
+    name: string;
+    hours: number;
+    tasks: number;
+    efficiency: number;
+  }[];
+  tasksByCategory: { category: string; count: number; percentage: number }[];
+  inventoryAlerts: {
+    item: string;
+    current: number;
+    minimum: number;
+    status: "low" | "critical";
+  }[];
+  weeklyTrends: {
+    week: string;
+    newCustomers: number;
+    completedTasks: number;
+    revenue: number;
+  }[];
+}
+
+export const useReportsData = () => {
+  const [reportsData, setReportsData] = useState<ReportsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchReportsData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Hent månedlig omsætning data
+        const { data: monthlyTasks, error: monthlyError } = await supabase
+          .from("tasks")
+          .select(
+            `
+            created_at,
+            estimated_hours,
+            customers (
+              hourly_rate
+            )
+          `
+          )
+          .gte(
+            "created_at",
+            new Date(new Date().getFullYear(), 0, 1).toISOString()
+          );
+
+        if (monthlyError) throw monthlyError;
+
+        // Beregn månedlig data
+        const monthlyRevenue = Array.from({ length: 12 }, (_, i) => {
+          const month = new Date(2024, i, 1);
+          const monthStr = month.toLocaleDateString("da-DK", {
+            month: "short",
+          });
+
+          const monthTasks =
+            monthlyTasks?.filter((task) => {
+              const taskDate = new Date(task.created_at);
+              return (
+                taskDate.getMonth() === i && taskDate.getFullYear() === 2024
+              );
+            }) || [];
+
+          const revenue = monthTasks.reduce((sum, task) => {
+            const customer = task.customers as any;
+            const rate = customer?.hourly_rate || 250;
+            return sum + task.estimated_hours * rate;
+          }, 0);
+
+          return {
+            month: monthStr,
+            revenue: Math.round(revenue),
+            tasks: monthTasks.length,
+          };
+        });
+
+        // Hent top kunder
+        const { data: customers, error: customersError } = await supabase.from(
+          "customers"
+        ).select(`
+            name,
+            hourly_rate,
+            tasks (
+              estimated_hours,
+              status
+            )
+          `);
+
+        if (customersError) throw customersError;
+
+        const topCustomers =
+          customers
+            ?.map((customer) => {
+              const completedTasks =
+                customer.tasks?.filter((task) => task.status === "completed") ||
+                [];
+              const totalHours = completedTasks.reduce(
+                (sum, task) => sum + task.estimated_hours,
+                0
+              );
+              const revenue = totalHours * (customer.hourly_rate || 250);
+
+              return {
+                name: customer.name,
+                revenue: Math.round(revenue),
+                tasks: completedTasks.length,
+              };
+            })
+            .sort((a, b) => b.revenue - a.revenue)
+            .slice(0, 5) || [];
+
+        // Hent medarbejder performance
+        const { data: employees, error: employeesError } = await supabase.from(
+          "employees"
+        ).select(`
+            first_name,
+            last_name,
+            tasks (
+              estimated_hours,
+              status,
+              created_at
+            )
+          `);
+
+        if (employeesError) throw employeesError;
+
+        const employeePerformance =
+          employees
+            ?.map((employee) => {
+              const completedTasks =
+                employee.tasks?.filter((task) => task.status === "completed") ||
+                [];
+              const totalHours = completedTasks.reduce(
+                (sum, task) => sum + task.estimated_hours,
+                0
+              );
+              const efficiency =
+                completedTasks.length > 0
+                  ? Math.round((totalHours / completedTasks.length) * 100) / 100
+                  : 0;
+
+              return {
+                name: `${employee.first_name} ${employee.last_name}`,
+                hours: totalHours,
+                tasks: completedTasks.length,
+                efficiency: efficiency,
+              };
+            })
+            .sort((a, b) => b.hours - a.hours) || [];
+
+        // Hent opgaver kategorier
+        const { data: allTasks, error: tasksError } = await supabase
+          .from("tasks")
+          .select("category, status");
+
+        if (tasksError) throw tasksError;
+
+        const categoryStats =
+          allTasks?.reduce((acc, task) => {
+            const category = task.category || "Andet";
+            acc[category] = (acc[category] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>) || {};
+
+        const totalTasks = allTasks?.length || 1;
+        const tasksByCategory = Object.entries(categoryStats).map(
+          ([category, count]) => ({
+            category,
+            count,
+            percentage: Math.round((count / totalTasks) * 100),
+          })
+        );
+
+        // Hent lager alerts
+        const { data: inventory, error: inventoryError } = await supabase
+          .from("inventory")
+          .select("*")
+          .or("current_stock.lt.minimum_stock,current_stock.lt.10");
+
+        if (inventoryError) throw inventoryError;
+
+        const inventoryAlerts =
+          inventory?.map((item) => ({
+            item: item.item_name,
+            current: item.current_stock,
+            minimum: item.minimum_stock,
+            status:
+              item.current_stock <= item.minimum_stock
+                ? ("critical" as const)
+                : ("low" as const),
+          })) || [];
+
+        // Ugentlige trends (sidste 8 uger)
+        const weeksAgo8 = new Date();
+        weeksAgo8.setDate(weeksAgo8.getDate() - 56);
+
+        const { data: recentTasks, error: recentTasksError } = await supabase
+          .from("tasks")
+          .select("created_at, estimated_hours")
+          .gte("created_at", weeksAgo8.toISOString());
+
+        const { data: recentCustomers, error: recentCustomersError } =
+          await supabase
+            .from("customers")
+            .select("created_at")
+            .gte("created_at", weeksAgo8.toISOString());
+
+        if (recentTasksError) throw recentTasksError;
+        if (recentCustomersError) throw recentCustomersError;
+
+        const weeklyTrends = Array.from({ length: 8 }, (_, i) => {
+          const weekStart = new Date();
+          weekStart.setDate(weekStart.getDate() - 7 * (7 - i));
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 7);
+
+          const weekTasks =
+            recentTasks?.filter((task) => {
+              const taskDate = new Date(task.created_at);
+              return taskDate >= weekStart && taskDate < weekEnd;
+            }) || [];
+
+          const weekCustomers =
+            recentCustomers?.filter((customer) => {
+              const customerDate = new Date(customer.created_at);
+              return customerDate >= weekStart && customerDate < weekEnd;
+            }) || [];
+
+          const revenue = weekTasks.reduce(
+            (sum, task) => sum + task.estimated_hours * 250,
+            0
+          );
+
+          return {
+            week: `Uge ${i + 1}`,
+            newCustomers: weekCustomers.length,
+            completedTasks: weekTasks.length,
+            revenue: Math.round(revenue),
+          };
+        });
+
+        setReportsData({
+          monthlyRevenue,
+          topCustomers,
+          employeePerformance,
+          tasksByCategory,
+          inventoryAlerts,
+          weeklyTrends,
+        });
+      } catch (error) {
+        console.error("Error fetching reports data:", error);
+        setError(error instanceof Error ? error.message : "Ukendt fejl");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReportsData();
+  }, []);
+
+  return { reportsData, loading, error };
+};
