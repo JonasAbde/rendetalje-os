@@ -34,6 +34,7 @@ export const Navigation: React.FC<NavigationProps> = ({ activeView, onNavigate }
     { id: 'employee_list', label: 'Medarbejdere', icon: <UserGroupIcon /> },
     { id: 'employee_create', label: 'Opret Medarbejder', icon: <UserPlusIcon /> },
     { id: 'invoicing', label: 'Økonomi', icon: <BanknotesIcon /> },
+    { id: 'inventory_management', label: 'Lager', icon: <CircleStackIcon /> },
     { id: 'reports_overview', label: 'Rapporter', icon: <DocumentChartBarIcon /> },
     { id: 'settings_general', label: 'Indstillinger', icon: <Cog6ToothIcon /> },
     { id: 'logout', label: 'Log Ud', icon: <ArrowLeftOnRectangleIcon /> },
