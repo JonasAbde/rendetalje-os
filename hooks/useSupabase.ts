@@ -1335,7 +1335,7 @@ export const useInventoryManagement = () => {
       const { data: item, error: updateError } = await supabase
         .from("inventory")
         .update({
-          current_stock: `current_stock + ${quantity}`,
+          quantity: `quantity + ${quantity}`,
           last_restocked: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -1380,22 +1380,20 @@ export const useInventoryManagement = () => {
       // Check if enough stock
       const { data: item, error: checkError } = await supabase
         .from("inventory")
-        .select("current_stock, item_name")
+        .select("quantity, item_name")
         .eq("id", itemId)
         .single();
 
       if (checkError) throw checkError;
-      if (item.current_stock < quantity) {
-        throw new Error(
-          `Ikke nok på lager. Tilgængelig: ${item.current_stock}`
-        );
+      if (item.quantity < quantity) {
+        throw new Error(`Ikke nok på lager. Tilgængelig: ${item.quantity}`);
       }
 
       // Update stock
       const { error: updateError } = await supabase
         .from("inventory")
         .update({
-          current_stock: `current_stock - ${quantity}`,
+          quantity: `quantity - ${quantity}`,
           updated_at: new Date().toISOString(),
         })
         .eq("id", itemId);
@@ -1432,11 +1430,11 @@ export const useInventoryManagement = () => {
   const addInventoryItem = async (itemData: {
     item_name: string;
     category: string;
-    description?: string;
-    current_stock: number;
-    minimum_stock: number;
+    notes?: string;
+    quantity: number;
+    minimum_quantity: number;
     unit: string;
-    cost_per_unit: number;
+    price_per_unit: number;
     supplier?: string;
   }) => {
     try {
@@ -1466,13 +1464,13 @@ export const useInventoryManagement = () => {
     try {
       const { data: item, error } = await supabase
         .from("inventory")
-        .select("current_stock, minimum_stock, item_name")
+        .select("quantity, minimum_quantity, item_name")
         .eq("id", itemId)
         .single();
 
       if (error) throw error;
 
-      if (item.current_stock <= item.minimum_stock) {
+      if (item.quantity <= item.minimum_quantity) {
         // Check if alert already exists
         const { data: existingAlert } = await supabase
           .from("inventory_alerts")
@@ -1485,9 +1483,9 @@ export const useInventoryManagement = () => {
         if (!existingAlert) {
           await supabase.from("inventory_alerts").insert({
             inventory_item_id: itemId,
-            alert_type: item.current_stock === 0 ? "out_of_stock" : "low_stock",
-            threshold_value: item.minimum_stock,
-            current_value: item.current_stock,
+            alert_type: item.quantity === 0 ? "out_of_stock" : "low_stock",
+            threshold_value: item.minimum_quantity,
+            current_value: item.quantity,
             is_resolved: false,
             created_at: new Date().toISOString(),
           });

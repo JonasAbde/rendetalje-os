@@ -159,13 +159,13 @@ export interface InventoryItem {
   id: string;
   item_name: string;
   category: "cleaning_supplies" | "equipment" | "consumables" | "other";
-  description?: string;
-  current_stock: number;
-  minimum_stock: number;
+  quantity: number; // current stock
+  minimum_quantity: number; // minimum stock
   unit: string;
-  cost_per_unit: number;
+  price_per_unit: number; // cost per unit
   supplier?: string;
   last_restocked?: string;
+  notes?: string; // description
   created_at: string;
   updated_at: string;
 }
